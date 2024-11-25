@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <base target="_top">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+        .cell-hover:hover {
+            cursor: pointer;
+            background-color: #e5e7eb;
+        }
+       .search-container {
+        display: none;  /* Hidden by default, shown in admin mode */
+        margin-bottom: 1rem;
+      }
+      .highlight {
+        background-color: #fde68a;
+      }
+      .admin-features {
+        display: none;
+      }
+      .timesheet-container {
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      }
+      .tooltip {
+        position: relative;
+        display: inline-block;
+      }
+      .tooltip .tooltiptext {
+        visibility: hidden;
+        width: 120px;
+        background-color: #333;
+        color: #fff;
+        text-align: center;
+        border-radius: 6px;
+        padding: 5px;
+        position: absolute;
+        z-index: 1;
+        bottom: 125%;
+        left: 50%;
+        margin-left: -60px;
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+      .tooltip:hover .tooltiptext {
+        visibility: visible;
+        opacity: 1;
+      }
+    </style>
+</head>
+<body>
+    <div class="w-full max-w-6xl mx-auto p-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <!-- Email Management Section -->
+            <div class="md:col-span-1 bg-white p-4 rounded-lg shadow">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold">Email Management</h3>
+                    <div>
+                        <button 
+                            onclick="promptPassword()" 
+                            id="adminBtn"
+                            class="text-sm bg-gray-500 text-white px-2 py-1 rounded hover:bg-gray-600 mr-2"
+                        >
+                            Admin Access
+                        </button>
+                        <button 
+                            onclick="deleteSelected()"
+                            id="deleteBtn"
+                            class="text-sm bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 hidden"
+                        >
+                            Delete Selected
+                        </button>
+                    </div>
+                </div>
+                <form id="emailForm" onsubmit="handleAddEmail(event)" class="mb-4">
+                    <input
+                        type="email"
+                        id="emailInput"
+                        placeholder="Enter email"
+                        class="w-full p-2 border rounded mb-2"
+                        required
+                    />
+                    <button 
+                        type="submit"
+                        class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
+                    >
+                        Add/Update Schedule
+                    </button>
+                </form>
+                
+                <div id="emailList" class="max-h-48 overflow-y-auto">
+                    <!-- Email list will be rendered here -->
+                </div>
+            </div>
+
+            <!-- Timesheet Section -->
+            <div class="md:col-span-3">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold">Availability Timesheet (PST Base)</h2>
+                    <button
+                        onclick="saveSchedule()"
+                        class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                    >
+                        Save Schedule
+                    </button>
+                </div>
+
+                <div id="timesheetContainer" class="overflow-x-auto bg-white rounded-lg shadow">
+                    <!-- Timesheet will be rendered here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Admin Modal -->
+    <div id="adminModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center">
+        <div class="bg-white p-4 rounded-lg shadow-lg w-80">
+            <h3 class="text-lg font-bold mb-3">Admin Access</h3>
+            <input
+                type="password"
+                id="adminPasswordInput"
+                placeholder="Enter admin password"
+                class="w-full p-2 border rounded mb-3"
+            />
+            <div class="flex justify-end gap-2">
+                <button onclick="closeAdminModal()" class="px-3 py-1 bg-gray-300 rounded hover:bg-gray-400">Cancel</button>
+                <button onclick="checkAdminPassword()" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">Login</button>
+            </div>
+        </div>
+    </div>
+    <div id="searchContainer" class="search-container">
+    <input
+        type="text"
+        id="emailSearch"
+        placeholder="Search emails..."
+        class="w-full p-2 border rounded mb-2"
+        onkeyup="searchEmails()"
+    />
+    <div class="flex justify-between text-sm text-gray-600">
+        <span id="searchCount">0 results</span>
+        <button 
+            onclick="clearSearch()"
+            class="text-blue-500 hover:text-blue-700"
+        >
+            Clear
+        </button>
+    </div>
+  </div>
+    <script>
+        // Constants
+        const ADMIN_PASSWORD = 'yourpassword'; // Change this to your desired password
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        const hours = Array.from({ length: 24 }, (_, i) => i);
+
+        // State
+        let isAdmin = false;
+        let emailList = [];
+        let selectedEmail = '';
+        let availability = {};
+        let savedSchedules = {};
+
+        // Initialize
+        window.onload = function() {
+            loadData();
+        };
+        function loadData() {
+            google.script.run
+                .withSuccessHandler(function(data) {
+                    try {
+                        console.log('Received data:', data);
+                        const parsed = JSON.parse(data);
+                        
+                        // Always store complete data
+                        savedSchedules = parsed.schedules || {};
+
+                        if (isAdmin) {
+                            // Admin sees all schedules
+                            emailList = parsed.emails || [];
+                        } else if (selectedEmail) {
+                            // Non-admin sees only their email
+                            emailList = [selectedEmail];
+                            availability = savedSchedules[selectedEmail] || {};
+                        } else {
+                            // No email selected
+                            emailList = [];
+                        }
+                        
+                        renderEmailList();
+                        if (selectedEmail) {
+                            renderTimesheet();
+                        }
+                    } catch (error) {
+                        console.error('Error parsing data:', error);
+                        showMessage('Error loading data', true);
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    console.error('Failed to load data:', error);
+                    showMessage('Failed to load data', true);
+                })
+                .loadScheduleData();
+        }
+
+        function handleAddEmail(event) {
+            event.preventDefault();
+            const email = document.getElementById('emailInput').value.trim();
+            
+            if (email) {
+                google.script.run
+                    .withSuccessHandler(function(data) {
+                        const parsed = JSON.parse(data);
+                        
+                        // Check if email exists in the stored data
+                        const existingSchedule = parsed.schedules[email];
+                        
+                        selectedEmail = email;
+                        
+                        if (existingSchedule) {
+                            // Email exists, load their schedule
+                            availability = existingSchedule;
+                            showMessage('Existing schedule loaded - make changes and click Save');
+                        } else {
+                            // New email, initialize empty schedule
+                            availability = {};
+                            // Make sure to add the email to the master list if it's not there
+                            if (!parsed.emails.includes(email)) {
+                                parsed.emails.push(email);
+                            }
+                            // Add the new schedule to the existing schedules
+                            parsed.schedules[email] = availability;
+                            showMessage('New schedule created - select your availability and Save');
+                        }
+
+                        // Keep all existing data
+                        savedSchedules = parsed.schedules;
+                        emailList = isAdmin ? parsed.emails : [email];
+                        
+                        document.getElementById('emailInput').value = '';
+                        renderEmailList();
+                        renderTimesheet();
+                        
+                        // Save complete data back to server
+                        saveData(parsed);
+                    })
+                    .loadScheduleData();
+            }
+        }
+
+        function selectEmail(email) {
+            selectedEmail = email;
+            availability = savedSchedules[email] || {};
+            renderTimesheet();
+        }
+
+        function saveSchedule() {
+            if (selectedEmail) {
+                google.script.run
+                    .withSuccessHandler(function(data) {
+                        const parsed = JSON.parse(data);
+                        
+                        // Update the current schedule while preserving all others
+                        parsed.schedules[selectedEmail] = availability;
+                        
+                        // Make sure the email is in the list if it's new
+                        if (!parsed.emails.includes(selectedEmail)) {
+                            parsed.emails.push(selectedEmail);
+                        }
+                        
+                        // Keep all existing data
+                        savedSchedules = parsed.schedules;
+                        emailList = isAdmin ? parsed.emails : [selectedEmail];
+                        
+                        // Save complete data back to server
+                        saveData(parsed);
+                        showMessage('Schedule saved successfully!');
+                    })
+                    .loadScheduleData();
+            }
+        }
+
+        function saveData(data) {
+            if (!data.emails || !data.schedules) {
+                console.error('Invalid data format');
+                return;
+            }
+
+            console.log('Saving data:', data);
+            google.script.run
+                .withSuccessHandler(function(result) {
+                    console.log('Save successful:', result);
+                })
+                .withFailureHandler(function(error) {
+                    console.error('Save failed:', error);
+                    showMessage('Failed to save data. Please try again.', true);
+                })
+                .saveScheduleData(JSON.stringify(data));
+        }
+
+
+        function renderEmailList() {
+            const container = document.getElementById('emailList');
+            container.innerHTML = emailList.map(email => `
+                <div class="flex justify-between items-center p-2 hover:bg-gray-100 rounded">
+                    ${isAdmin ? `
+                        <input 
+                            type="checkbox" 
+                            class="email-checkbox mr-2"
+                            value="${email}"
+                        >
+                    ` : ''}
+                    <button
+                        onclick="selectEmail('${email}')"
+                        class="flex-grow text-left p-1 ${selectedEmail === email ? 'font-bold' : ''}"
+                    >
+                        ${email}
+                    </button>
+                    ${isAdmin ? `
+                        <button
+                            onclick="deleteEmail('${email}')"
+                            class="text-red-500 hover:text-red-700 ml-2"
+                        >
+                            ×
+                        </button>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        function renderTimesheet() {
+            const container = document.getElementById('timesheetContainer');
+            if (!selectedEmail) {
+                container.innerHTML = `
+                    <div class="text-center p-8 bg-gray-50 rounded-lg">
+                        Please select an email from the list or add a new one to start managing availability.
+                    </div>
+                `;
+                return;
+            }
+
+            let table = '<table class="w-full border-collapse">';
+            
+            // Header
+            table += '<thead><tr><th class="border p-2">Day</th>';
+            for (let hour = 0; hour < 24; hour++) {
+                table += `<th class="border p-2">${formatHour(hour)}</th>`;
+            }
+            table += '</tr></thead>';
+
+            // Body
+            table += '<tbody>';
+            for (const day of days) {
+                table += `<tr><td class="border p-2 font-medium">${day}</td>`;
+                for (let hour = 0; hour < 24; hour++) {
+                    const key = `${day}-${hour}`;
+                    table += `
+                        <td
+                            onclick="toggleAvailability('${day}', ${hour})"
+                            class="border p-2 cursor-pointer text-center ${
+                                availability[key] ? 'bg-green-200 hover:bg-green-300' : 'hover:bg-gray-100'
+                            }"
+                        >
+                            ${availability[key] ? '✓' : ''}
+                        </td>
+                    `;
+                }
+                table += '</tr>';
+            }
+            table += '</tbody></table>';
+
+            container.innerHTML = table;
+        }
+
+        function toggleAvailability(day, hour) {
+            const key = `${day}-${hour}`;
+            availability[key] = !availability[key];
+            renderTimesheet();
+        }
+
+        function formatHour(hour) {
+            const period = hour >= 12 ? 'PM' : 'AM';
+            const displayHour = hour % 12 || 12;
+            return `${displayHour}${period}`;
+        }
+
+        function showMessage(message, isError = false) {
+            const div = document.createElement('div');
+            div.className = `fixed top-4 right-4 px-4 py-2 rounded shadow ${
+                isError ? 'bg-red-500' : 'bg-green-500'
+            } text-white`;
+            div.textContent = message;
+            document.body.appendChild(div);
+            
+            setTimeout(() => {
+                div.remove();
+            }, 3000);
+        }
+
+        function promptPassword() {
+            const password = prompt("Enter admin password:");
+            if (password === ADMIN_PASSWORD) {
+                isAdmin = true;
+                const adminBtn = document.getElementById('adminBtn');
+                const deleteBtn = document.getElementById('deleteBtn');
+                
+                adminBtn.textContent = 'Admin Mode';
+                adminBtn.classList.remove('bg-gray-500');
+                adminBtn.classList.add('bg-green-500');
+                deleteBtn.classList.remove('hidden');
+                
+                loadData();
+                showMessage('Admin mode activated');
+            } else {
+                alert("Incorrect password");
+            }
+        }
+
+        function deleteEmail(email) {
+            if (!isAdmin) return;
+            
+            if (confirm(`Are you sure you want to delete ${email}'s schedule?`)) {
+                google.script.run
+                    .withSuccessHandler(function(success) {
+                        if (success) {
+                            emailList = emailList.filter(e => e !== email);
+                            delete savedSchedules[email];
+                            
+                            if (selectedEmail === email) {
+                                selectedEmail = '';
+                                availability = {};
+                            }
+                            
+                            renderEmailList();
+                            renderTimesheet();
+                            loadData();
+                            
+                            showMessage('Schedule deleted successfully');
+                        } else {
+                            showMessage('Failed to delete schedule', true);
+                        }
+                    })
+                    .deleteSchedules([email]);
+            }
+        }
+
+        function deleteSelected() {
+            if (!isAdmin) return;
+
+            const checkboxes = document.querySelectorAll('.email-checkbox:checked');
+            if (checkboxes.length === 0) {
+                alert('Please select at least one schedule to delete');
+                return;
+            }
+
+            if (confirm(`Are you sure you want to delete ${checkboxes.length} selected schedule(s)?`)) {
+                const emailsToDelete = Array.from(checkboxes).map(cb => cb.value);
+                
+                google.script.run
+                    .withSuccessHandler(function(success) {
+                        if (success) {
+                            emailsToDelete.forEach(email => {
+                                emailList = emailList.filter(e => e !== email);
+                                delete savedSchedules[email];
+                                
+                                if (selectedEmail === email) {
+                                    selectedEmail = '';
+                                    availability = {};
+                                }
+                            });
+
+                            renderEmailList();
+                            renderTimesheet();
+                            loadData();
+                            
+                            showMessage(`Deleted ${emailsToDelete.length} schedule(s)`);
+                        } else {
+                            showMessage('Failed to delete schedules', true);
+                        }
+                    })
+                    .deleteSchedules(emailsToDelete);
+            }
+        }
+        function searchEmails() {
+    const searchTerm = document.getElementById('emailSearch').value.toLowerCase();
+    const container = document.getElementById('emailList');
+    let count = 0;
+
+    emailList.forEach(email => {
+        const element = container.querySelector(`[data-email="${email}"]`);
+        if (element) {
+            if (email.toLowerCase().includes(searchTerm)) {
+                element.style.display = 'flex';
+                highlightSearchTerm(element, searchTerm);
+                count++;
+            } else {
+                element.style.display = 'none';
+            }
+        }
+    });
+
+    document.getElementById('searchCount').textContent = `${count} result${count !== 1 ? 's' : ''}`;
+}
+
+function highlightSearchTerm(element, searchTerm) {
+    const emailText = element.querySelector('.email-text');
+    const email = emailText.getAttribute('data-original-email');
+    const regex = new RegExp(`(${searchTerm})`, 'gi');
+    emailText.innerHTML = email.replace(regex, '<span class="highlight">$1</span>');
+}
+
+function clearSearch() {
+    document.getElementById('emailSearch').value = '';
+    searchEmails();
+}
+
+// Modify the existing promptPassword function
+function promptPassword() {
+    const password = prompt("Enter admin password:");
+    if (password === ADMIN_PASSWORD) {
+        isAdmin = true;
+        document.getElementById('adminBtn').textContent = 'Admin Mode';
+        document.getElementById('adminBtn').classList.remove('bg-gray-500');
+        document.getElementById('adminBtn').classList.add('bg-green-500');
+        document.getElementById('deleteBtn').classList.remove('hidden');
+        document.getElementById('searchContainer').style.display = 'block';
+        loadData();
+        showMessage('Admin mode activated');
+    } else {
+        alert("Incorrect password");
+    }
+}
+
+// Modify the renderEmailList function to include data attributes
+function renderEmailList() {
+    const container = document.getElementById('emailList');
+    container.innerHTML = emailList.map(email => `
+        <div 
+            data-email="${email}"
+            class="flex justify-between items-center p-2 hover:bg-gray-100 rounded"
+        >
+            ${isAdmin ? `
+                <input 
+                    type="checkbox" 
+                    class="email-checkbox mr-2"
+                    value="${email}"
+                >
+            ` : ''}
+            <button
+                onclick="selectEmail('${email}')"
+                class="flex-grow text-left p-1 ${selectedEmail === email ? 'font-bold' : ''}"
+            >
+                <span class="email-text" data-original-email="${email}">${email}</span>
+            </button>
+            ${isAdmin ? `
+                <button
+                    onclick="deleteEmail('${email}')"
+                    class="text-red-500 hover:text-red-700 ml-2"
+                >
+                    ×
+                </button>
+            ` : ''}
+        </div>
+    `).join('');
+    }
+            function promptPassword() {
+            document.getElementById('adminModal').classList.remove('hidden');
+            document.getElementById('adminPasswordInput').focus();
+        }
+
+        function closeAdminModal() {
+            document.getElementById('adminModal').classList.add('hidden');
+            document.getElementById('adminPasswordInput').value = '';
+        }
+
+        function checkAdminPassword() {
+            const password = document.getElementById('adminPasswordInput').value;
+            if (password === ADMIN_PASSWORD) {
+                isAdmin = true;
+                const adminBtn = document.getElementById('adminBtn');
+                const deleteBtn = document.getElementById('deleteBtn');
+                
+                adminBtn.textContent = 'Admin Mode';
+                adminBtn.classList.remove('bg-gray-500');
+                adminBtn.classList.add('bg-green-500');
+                deleteBtn.classList.remove('hidden');
+                document.getElementById('searchContainer').style.display = 'block';
+                
+                closeAdminModal();
+                loadData();
+                showMessage('Admin mode activated');
+            } else {
+                showMessage('Incorrect password', true);
+            }
+        }    
+    </script>
+    
+</body>
+</html>
