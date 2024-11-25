@@ -1,0 +1,3 @@
+This is a web application I built that allows users to enter their email address and select their availability for the week in PST each day. It is very helpful when determining who is available for weekend project coverage versus those who are not, and also allows us to confirm or disprove STO's who say they are unresponsive to make sure if they are unresponsive it is during their inavailability.
+The secondary feature of this application is an admin mode which is password protected (atm) which allows admins to view all schedules. 
+I am working on expanding this application to make it to where it has more features and is accessible by automating email blasts to STOs with their assigned members staffing availability each week.
